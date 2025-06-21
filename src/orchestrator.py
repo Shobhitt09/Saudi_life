@@ -8,7 +8,7 @@ from src.common.config import SARVAM_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MOD
 from src.common.prompts import LLM_RESPONSE_SYSTEM_PROMPT, LLM_RESPONSE_USER_PROMPT
 from src.common.logger import logger
 from src.request_models import ChatRequest, SearchRequest
-from db import VectorDatabase
+from src.database import VectorDatabase
 
 class ChatOrchestrator:
     def __init__(self):

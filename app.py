@@ -5,7 +5,7 @@ from src.common.logger import logger, get_request_id
 from src.common.constants import LOGGER_CHAT_ORCHESTRATOR
 from src.orchestrator import ChatOrchestrator
 from src.request_models import ChatRequest, IngestRequest, SearchRequest
-from db import VectorDatabase
+from src.database import VectorDatabase
 
 app = FastAPI()
 orchestrator = ChatOrchestrator()
