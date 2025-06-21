@@ -1,14 +1,12 @@
 import requests
 import pytest
-import json
-import time
 import os
 
 BASE_URL = "http://0.0.0.0:8000"
 headers = {"Content-Type": "application/json"}
 
 # Load sample audio base64 content
-audio_path = "test/example.wav.base64"
+audio_path = "tests/example.wav.base64"
 audio_data = None
 if os.path.exists(audio_path):
     with open(audio_path, "r") as f:

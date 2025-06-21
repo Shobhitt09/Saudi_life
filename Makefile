@@ -2,7 +2,7 @@
 APP_MODULE=app:app
 PORT=8000
 HOST=0.0.0.0
-RELOAD=true
+RELOAD=false
 
 # Create virtual environment and install dependencies
 install:
@@ -13,17 +13,13 @@ install:
 # Run FastAPI app using uvicorn
 run:
 	@echo "Starting SaudiLife app..."
-	if [ "$(RELOAD)" = "true" ]; then
-		UVICORN_CMD="uvicorn --reload"
-	else
-		UVICORN_CMD="uvicorn"
-	fi
-	. .venv/bin/activate && $(UVICORN_CMD) $(APP_MODULE) --host $(HOST) --port $(PORT) --workers 4
-
+	TOKENIZERS_PARALLELISM=false . .venv/bin/activate && \
+		[ "$(RELOAD)" = "true" ] && CMD="uvicorn --reload" || CMD="uvicorn"; \
+		$$CMD $(APP_MODULE) --host $(HOST) --port $(PORT) --workers 4
 # Clean up
 clean:
 	@echo "Cleaning up temporary files..."
-	rm -rf __pycache__ .pytest_cache .venv *.pyc
+	rm -rf __pycache__ .pytest_cache .venv *.pyc */__pycache__
 
 test:
 	@echo "Running tests..."
