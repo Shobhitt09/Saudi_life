@@ -7,14 +7,29 @@ from src.common.constants import LOGGER_CHAT_ORCHESTRATOR
 from src.orchestrator import ChatOrchestrator
 from src.request_models import ChatRequest, IngestRequest, SearchRequest
 from src.database import VectorDatabase
+import asyncio
+from contextlib import asynccontextmanager
 
-app = FastAPI()
-orchestrator = ChatOrchestrator()
+# Global instances for shared resources
 vector_database = VectorDatabase()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting up the application...")
+    yield
+    # Shutdown
+    logger.info("Shutting down the application...")
+
+app = FastAPI(lifespan=lifespan)
 
 @app.post("/process/")
 async def process_item(request: ChatRequest):
     setattr(request, 'request_id', get_request_id())
+    
+    # Create a new orchestrator instance for each request to avoid blocking
+    orchestrator = ChatOrchestrator()
+    
     try:
         orchestrator_response = await orchestrator.process(request)
         return {
@@ -31,19 +46,30 @@ async def process_item(request: ChatRequest):
 @app.post("/process_stream")
 async def process_item_stream(request: ChatRequest):
     setattr(request, 'request_id', get_request_id())
+    
+    # Create a new orchestrator instance for each request to avoid blocking
+    orchestrator = ChatOrchestrator()
+    
     try:
         orchestrator_response = await orchestrator.process(request, stream=True)
         gathered_chunks = []
+        
         async def format_response():
-            # This function will yield chunks of the response
-            async for chunk in orchestrator_response:
-                if isinstance(chunk, str):
-                    gathered_chunks.append(chunk)
-                    yield json.dumps({"chunk": chunk})+"\n"
-                else:
-                    yield json.dumps({"error": "Invalid response format from orchestrator"})+"\n"
-            
-            yield str({"final_response": "".join(gathered_chunks)})+"\n"
+            # Check if the response is an async generator (streaming) or a dict (error)
+            if hasattr(orchestrator_response, '__aiter__'):
+                # This is a streaming response
+                async for chunk in orchestrator_response:
+                    if isinstance(chunk, str):
+                        gathered_chunks.append(chunk)
+                        yield json.dumps({"chunk": chunk})+"\n"
+                    else:
+                        yield json.dumps({"error": "Invalid response format from orchestrator"})+"\n"
+                
+                yield str({"final_response": "".join(gathered_chunks)})+"\n"
+            else:
+                # This is an error response (dict)
+                yield json.dumps(orchestrator_response)+"\n"
+        
         return StreamingResponse(format_response(), media_type="text/plain")
     except Exception as e:
         logger.exception(f"{LOGGER_CHAT_ORCHESTRATOR} - {getattr(request, 'request_id', 'N/A')} - Error processing request: {e}")
@@ -73,5 +99,13 @@ async def health_check():
         return {"status": "error", "message": "Service is not running"}
 
 if __name__ == "__main__":
-    # Run the FastAPI app using uvicorn
-    uvicorn.run("app:app", port=8000, reload=True)
+    # Run the FastAPI app using uvicorn with optimized settings for concurrency
+    uvicorn.run(
+        "app:app", 
+        port=8000, 
+        reload=True,
+        workers=4,  # Multiple worker processes
+        loop="asyncio",
+        http="httptools",  # Faster HTTP parser
+        access_log=False  # Disable access logs for better performance
+    )

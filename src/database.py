@@ -1,3 +1,4 @@
+from functools import lru_cache
 import hashlib
 import uuid
 import asyncio
@@ -24,7 +25,7 @@ app = FastAPI()
 
 class VectorDatabase:
     def __init__(self):
-        self.embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.embedding_model = self.get_embedding_model()
         self.redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, ssl=False)
         self.hash_cache = {}
         self.create_redis_index()
@@ -45,6 +46,10 @@ class VectorDatabase:
                     }
                 )
             ])
+    
+    @lru_cache()
+    def get_embedding_model(self):
+        return SentenceTransformer("all-MiniLM-L6-v2")
 
     @staticmethod
     async def fetch(url):
@@ -90,7 +95,7 @@ class VectorDatabase:
 
         return chunks
 
-    def store_in_redis(self, chunk):
+    async def store_in_redis(self, chunk):
         vec = self.embedding_model.encode(chunk).astype(np.float32).tobytes()
         doc_id = str(uuid.uuid4())
         self.redis_client.hset(f"doc:{doc_id}", mapping={
@@ -131,9 +136,9 @@ class VectorDatabase:
         
         for text in texts:
             for chunk in self.chunk_text(text):
-                self.store_in_redis(chunk)
+                await self.store_in_redis(chunk)
             
-        self.remove_duplicates(request)
+        await self.remove_duplicates(request)
         logger.info(f"{LOGGER_DB_INGEST} - {request.request_id} - Ingested {len(texts)} chunk(s)")
 
         return {"message": f"Processed {len(texts)} chunk(s)"}
@@ -176,7 +181,7 @@ class VectorDatabase:
             logger.error(f"{LOGGER_DB_SEARCH} - {request.request_id} - Error during search: {str(e)}")
             return {"error": str(e)}, 500
     
-    def remove_duplicates(self, request, prefix="doc:"):
+    async def remove_duplicates(self, request, prefix="doc:"):
         """
         Removes documents in Redis with duplicate 'chunk' values.
 
