@@ -49,7 +49,7 @@ def test_empty_query():
     assert response.json().get("response").get("error") == "Query cannot be empty", "Empty query should return an error"
 
 def test_audio_input():
-    with open("test/example.wav.base64", "r") as f:
+    with open("tests/example.wav.base64", "r") as f:
         audio_data = f.read()
 
     payload = {
