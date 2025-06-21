@@ -19,7 +19,7 @@ run:
 # Clean up
 clean:
 	@echo "Cleaning up temporary files..."
-	rm -rf __pycache__ .pytest_cache .venv *.pyc
+	rm -rf __pycache__ .pytest_cache .venv *.pyc */__pycache__
 
 test:
 	@echo "Running tests..."
