@@ -1,11 +1,14 @@
 from typing import AsyncGenerator, Literal
-from src.utils import ChatRequest
-from src.common.constants import LANGUAGE_MAP
+from sarvamai import SarvamAI
+from openai import OpenAI
+from fastapi import Request
+
+from src.common.constants import LANGUAGE_MAP, LOGGER_CHAT_ORCHESTRATOR
 from src.common.config import SARVAM_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_ID
 from src.common.prompts import LLM_RESPONSE_SYSTEM_PROMPT, LLM_RESPONSE_USER_PROMPT
 from src.common.logger import logger
-from sarvamai import SarvamAI
-from openai import OpenAI
+from src.request_models import ChatRequest, SearchRequest
+from src.database import VectorDatabase
 
 class ChatOrchestrator:
     def __init__(self):
@@ -14,32 +17,45 @@ class ChatOrchestrator:
             api_key=LLM_API_KEY, 
             base_url=LLM_BASE_URL
         )
+        self.vector_database = VectorDatabase()
 
     async def process(self, request: ChatRequest, stream: bool = False):
-        logger.info(f"Received request: {request}")
-        language = self.identify_language(request.query)
-        translated_query = self.translate_query(request.query, language, "en")
-        contexts = self.fetch_contexts(translated_query)
+        if not hasattr(request, "query") or not request.query:
+            logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request.request_id} - Empty query received")
+            return {"error": "Query cannot be empty", "message": "Please provide a valid query."}
+        
+        logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request.request_id} - Processing request: {request.query}")
+        
+        language = self.identify_language(request.query, request_id=request.request_id)
+        translated_query = self.translate_query(request.query, language, "en", request_id=request.request_id)
+        contexts = await self.fetch_contexts(translated_query, k=3, request_id=request.request_id)
+
         if stream:
-            llm_response = self.generate_llm_response_stream(translated_query, contexts, language)
+            llm_response = self.generate_llm_response_stream(translated_query, contexts, language, request_id=request.request_id)
             return llm_response
-        else:
-            llm_response = self.generate_llm_response(translated_query, contexts, language)
-            return llm_response
+        
+        llm_response = self.generate_llm_response(translated_query, contexts, language, request_id=request.request_id)
+        return llm_response
     
-    def identify_language(self, query: str) -> Literal["hi", "ml"]:
+    def identify_language(self, query: str, request_id=None) -> Literal["en", "hi", "ml"]:
+        english_range = range(0x0041, 0x007F)
         devanagari_range = range(0x0900, 0x0980)
         malayalam_range = range(0x0D00, 0x0D80)
 
+        english_count = sum(1 for char in query if ord(char) in english_range)
         devanagari_count = sum(1 for char in query if ord(char) in devanagari_range)
         malayalam_count = sum(1 for char in query if ord(char) in malayalam_range)
-        
-        identified_language = "hi" if devanagari_count > malayalam_count else "ml"
-        logger.info(f"Language identified: {identified_language}")
+
+        count_map = {"en": english_count, "hi": devanagari_count, "ml": malayalam_count}
+        identified_language = sorted(count_map.items(), key=lambda x: x[1], reverse=True)[0][0]
+        logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Identified language: {identified_language} for query: {query}")
         
         return identified_language
     
-    def translate_query(self, query: str, source_lang: str, target_lang: str) -> str: 
+    def translate_query(self, query: str, source_lang: str, target_lang: str, request_id=None) -> str: 
+        if source_lang == target_lang:
+            logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - No translation needed for {source_lang} to {target_lang}")
+            return query
         try:
             response = self.translator_client.text.translate(
                 input=query,
@@ -48,22 +64,23 @@ class ChatOrchestrator:
                 model="sarvam-translate:v1"
             ).translated_text
 
-            logger.info(f"Translation from {source_lang} to {target_lang} successful: {response}")
+            logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Translation from {source_lang} to {target_lang} successful: {response}")
             return response
         except Exception as e:
-            print(f"Translation error: {e}")
+            logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Translation error: {e}")
             return None
         
-    def fetch_contexts(self, query: str) -> list:
-        c1 = "Saudi Arabia has been diversifying its economy under the Vision 2030 initiative, leading to growing opportunities in sectors like technology, tourism, construction, renewable energy, and entertainment. Expats and locals alike can explore high-demand roles in fields such as IT, project management, healthcare, and education. The government offers work visas for skilled professionals, and Saudization policies are encouraging more local employment while also promoting sectors open to foreign talent."
-        c2 = "Remote and online income is a growing trend in Saudi Arabia. Residents can earn through freelancing platforms like Upwork or Fiverr, content creation on YouTube or TikTok, affiliate marketing, and e-commerce through platforms like Amazon.sa or Noon. Crypto trading and stock investing (Tadawul market) are also common among tech-savvy individuals. The government supports digital entrepreneurship through programs like Monsha’at and Fintech Saudi, offering support and funding for startups."
-        c3 = "Starting a small business in Saudi Arabia has become easier due to reforms in business licensing, especially for foreigners through the MISA (Ministry of Investment). Profitable ideas include setting up cafes, logistics companies, real estate ventures, digital services, and tourism-related businesses. With a growing middle class and increased consumer spending, Saudi Arabia is an attractive place for investment. Crowdfunding platforms, angel networks, and startup accelerators like Misk and Flat6Labs also support early-stage ventures."
-        contexts = [c1, c2, c3]
+    async def fetch_contexts(self, query: str, k: int = 3, request_id=None) -> list:
+        search_request = SearchRequest(query=query, k=k, request_id=request_id)
+        contexts = await self.vector_database.search(search_request)
+        if not contexts:
+            logger.warning(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - No contexts found for query: {query}")
+            return []
 
-        logger.info(f"Fetched {len(contexts)} contexts for query")
-        return contexts
+        logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Fetched {len(contexts)} contexts for query: {query}")
+        return [context['chunk'] for context in contexts]
     
-    def generate_llm_response(self, query: str, contexts: list, language: Literal['hi', 'ml']) -> str:
+    def generate_llm_response(self, query: str, contexts: list, language: Literal['hi', 'ml'], request_id=None) -> str:
         try:
             response = self.llm_client.chat.completions.create(
                 messages=[
@@ -72,14 +89,14 @@ class ChatOrchestrator:
                 ],
                 model=LLM_MODEL_ID,
             )
-            logger.info("LLM response generated successfully")
+            logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - LLM response generated successfully")
 
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"LLM generation error: {e}")
+            logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Error generating LLM response: {e}")
             return None
         
-    async def generate_llm_response_stream(self, query: str, contexts: list, language: Literal['hi', 'ml']) -> AsyncGenerator[str, None]:
+    async def generate_llm_response_stream(self, query: str, contexts: list, language: Literal['hi', 'ml'], request_id=None) -> AsyncGenerator[str, None]:
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": LLM_RESPONSE_SYSTEM_PROMPT},
@@ -88,7 +105,7 @@ class ChatOrchestrator:
             model=LLM_MODEL_ID,
             stream=True
         )
-
+        logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Streaming LLM response for query: {query}")
         for chunk in response:
             if hasattr(chunk, 'choices') and len(chunk.choices) > 0:
                 content = chunk.choices[0]
