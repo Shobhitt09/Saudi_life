@@ -1,11 +1,12 @@
 from typing import AsyncGenerator, Literal
 from src.utils import ChatRequest
 from src.common.constants import LANGUAGE_MAP
-from src.common.config import SARVAM_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_ID
+from src.common.config import SARVAM_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_ID, DB_SEARCH_API_URL
 from src.common.prompts import LLM_RESPONSE_SYSTEM_PROMPT, LLM_RESPONSE_USER_PROMPT
 from src.common.logger import logger
 from sarvamai import SarvamAI
 from openai import OpenAI
+import requests
 
 class ChatOrchestrator:
     def __init__(self):
@@ -23,9 +24,9 @@ class ChatOrchestrator:
         if stream:
             llm_response = self.generate_llm_response_stream(translated_query, contexts, language)
             return llm_response
-        else:
-            llm_response = self.generate_llm_response(translated_query, contexts, language)
-            return llm_response
+        
+        llm_response = self.generate_llm_response(translated_query, contexts, language)
+        return llm_response
     
     def identify_language(self, query: str) -> Literal["hi", "ml"]:
         devanagari_range = range(0x0900, 0x0980)
@@ -54,14 +55,22 @@ class ChatOrchestrator:
             print(f"Translation error: {e}")
             return None
         
-    def fetch_contexts(self, query: str) -> list:
-        c1 = "Saudi Arabia has been diversifying its economy under the Vision 2030 initiative, leading to growing opportunities in sectors like technology, tourism, construction, renewable energy, and entertainment. Expats and locals alike can explore high-demand roles in fields such as IT, project management, healthcare, and education. The government offers work visas for skilled professionals, and Saudization policies are encouraging more local employment while also promoting sectors open to foreign talent."
-        c2 = "Remote and online income is a growing trend in Saudi Arabia. Residents can earn through freelancing platforms like Upwork or Fiverr, content creation on YouTube or TikTok, affiliate marketing, and e-commerce through platforms like Amazon.sa or Noon. Crypto trading and stock investing (Tadawul market) are also common among tech-savvy individuals. The government supports digital entrepreneurship through programs like Monsha’at and Fintech Saudi, offering support and funding for startups."
-        c3 = "Starting a small business in Saudi Arabia has become easier due to reforms in business licensing, especially for foreigners through the MISA (Ministry of Investment). Profitable ideas include setting up cafes, logistics companies, real estate ventures, digital services, and tourism-related businesses. With a growing middle class and increased consumer spending, Saudi Arabia is an attractive place for investment. Crowdfunding platforms, angel networks, and startup accelerators like Misk and Flat6Labs also support early-stage ventures."
-        contexts = [c1, c2, c3]
+    def fetch_contexts(self, query: str, k: int = 3) -> list:
+        url = DB_SEARCH_API_URL
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        data = {
+            "query": query,
+            "k": k
+        }
+        # c1 = "Saudi Arabia has been diversifying its economy under the Vision 2030 initiative, leading to growing opportunities in sectors like technology, tourism, construction, renewable energy, and entertainment. Expats and locals alike can explore high-demand roles in fields such as IT, project management, healthcare, and education. The government offers work visas for skilled professionals, and Saudization policies are encouraging more local employment while also promoting sectors open to foreign talent."
+        # c2 = "Remote and online income is a growing trend in Saudi Arabia. Residents can earn through freelancing platforms like Upwork or Fiverr, content creation on YouTube or TikTok, affiliate marketing, and e-commerce through platforms like Amazon.sa or Noon. Crypto trading and stock investing (Tadawul market) are also common among tech-savvy individuals. The government supports digital entrepreneurship through programs like Monsha’at and Fintech Saudi, offering support and funding for startups."
+        # c3 = "Starting a small business in Saudi Arabia has become easier due to reforms in business licensing, especially for foreigners through the MISA (Ministry of Investment). Profitable ideas include setting up cafes, logistics companies, real estate ventures, digital services, and tourism-related businesses. With a growing middle class and increased consumer spending, Saudi Arabia is an attractive place for investment. Crowdfunding platforms, angel networks, and startup accelerators like Misk and Flat6Labs also support early-stage ventures."
+        contexts = requests.post(url, json=data, headers=headers).json()
 
         logger.info(f"Fetched {len(contexts)} contexts for query")
-        return contexts
+        return [context['chunk'] for context in contexts]
     
     def generate_llm_response(self, query: str, contexts: list, language: Literal['hi', 'ml']) -> str:
         try:

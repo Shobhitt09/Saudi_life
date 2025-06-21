@@ -34,4 +34,4 @@ async def process_item(request: ChatRequest):
 
 if __name__ == "__main__":
     # Run the FastAPI app using uvicorn
-    uvicorn.run(app)
+    uvicorn.run("app:app", port=8000, reload=True)
