@@ -2,8 +2,10 @@ from pydantic import BaseModel
 from typing import Optional
 
 class ChatRequest(BaseModel):
-    query: str
-    name: Optional[str]
+    query: Optional[str] = None
+    translated_query: Optional[str] = None
+    audio: Optional[str] = None
+    name: Optional[str] = None
     request_id: Optional[str] = None
 
 class IngestRequest(BaseModel):

@@ -1,7 +1,8 @@
-from typing import AsyncGenerator, Literal
+import base64
+import io
+from typing import AsyncGenerator, Literal, Optional
 from sarvamai import SarvamAI
 from openai import OpenAI
-from fastapi import Request
 
 from src.common.constants import LANGUAGE_MAP, LOGGER_CHAT_ORCHESTRATOR
 from src.common.config import SARVAM_API_KEY, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL_ID
@@ -19,23 +20,44 @@ class ChatOrchestrator:
         )
         self.vector_database = VectorDatabase()
 
-    async def process(self, request: ChatRequest, stream: bool = False):
+    async def process(self, request: ChatRequest, stream: bool = False) -> Optional[dict[str, str] | AsyncGenerator[str, None]]:
+        if hasattr(request, "audio") and request.audio:
+            audio_bytes = io.BytesIO(base64.b64decode(request.audio))
+            audio_bytes.name = "audio.wav"
+            speech_to_text_result, language = self.speech_to_text(audio_bytes, request_id=request.request_id)
+            request.query = speech_to_text_result
+            request.translated_query = speech_to_text_result
+
         if not hasattr(request, "query") or not request.query:
             logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request.request_id} - Empty query received")
             return {"error": "Query cannot be empty", "message": "Please provide a valid query."}
         
         logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request.request_id} - Processing request: {request.query}")
         
-        language = self.identify_language(request.query, request_id=request.request_id)
-        translated_query = self.translate_query(request.query, language, "en", request_id=request.request_id)
-        contexts = await self.fetch_contexts(translated_query, k=3, request_id=request.request_id)
+        if not hasattr(request, "audio") or not request.request_id:
+            language = self.identify_language(request.query, request_id=request.request_id)
+            request.translated_query = self.translate_query(request.query, language, "en", request_id=request.request_id)
+
+        contexts = await self.fetch_contexts(request.translated_query, k=3, request_id=request.request_id)
 
         if stream:
-            llm_response = self.generate_llm_response_stream(translated_query, contexts, language, request_id=request.request_id)
+            llm_response = self.generate_llm_response_stream(request.translated_query, contexts, language, request_id=request.request_id)
             return llm_response
         
-        llm_response = self.generate_llm_response(translated_query, contexts, language, request_id=request.request_id)
+        llm_response = self.generate_llm_response(request.translated_query, contexts, language, request_id=request.request_id)
         return llm_response
+    
+    def speech_to_text(self, audio: bytes, request_id: str = None) -> Optional[tuple[str, str]]:
+        try:
+            response = self.translator_client.speech_to_text.translate(
+                file=audio,
+                model="saaras:v2.5"
+            )
+            logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Detected Language {response.language_code}. Speech to text translation successful")
+            return response.transcript, response.language_code[:2]
+        except Exception as e:
+            logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Error during speech to text translation: {e}")
+            return None
     
     def identify_language(self, query: str, request_id=None) -> Literal["en", "hi", "ml"]:
         english_range = range(0x0041, 0x007F)
@@ -52,7 +74,7 @@ class ChatOrchestrator:
         
         return identified_language
     
-    def translate_query(self, query: str, source_lang: str, target_lang: str, request_id=None) -> str: 
+    def translate_query(self, query: str, source_lang: str, target_lang: str, request_id: str = None) -> Optional[str]: 
         if source_lang == target_lang:
             logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - No translation needed for {source_lang} to {target_lang}")
             return query
@@ -70,7 +92,7 @@ class ChatOrchestrator:
             logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Translation error: {e}")
             return None
         
-    async def fetch_contexts(self, query: str, k: int = 3, request_id=None) -> list:
+    async def fetch_contexts(self, query: str, k: int = 3, request_id: str = None) -> list:
         search_request = SearchRequest(query=query, k=k, request_id=request_id)
         contexts = await self.vector_database.search(search_request)
         if not contexts:
@@ -96,7 +118,7 @@ class ChatOrchestrator:
             logger.error(f"{LOGGER_CHAT_ORCHESTRATOR} - {request_id} - Error generating LLM response: {e}")
             return None
         
-    async def generate_llm_response_stream(self, query: str, contexts: list, language: Literal['hi', 'ml'], request_id=None) -> AsyncGenerator[str, None]:
+    async def generate_llm_response_stream(self, query: str, contexts: list, language: Literal['hi', 'ml'], request_id: str = None) -> AsyncGenerator[str, None]:
         response = self.llm_client.chat.completions.create(
             messages=[
                 {"role": "system", "content": LLM_RESPONSE_SYSTEM_PROMPT},
