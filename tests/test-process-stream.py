@@ -1,7 +1,5 @@
 import requests
 import pytest
-import json
-import time
 import os
 
 BASE_URL = "http://0.0.0.0:8000"

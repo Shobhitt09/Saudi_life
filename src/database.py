@@ -1,4 +1,3 @@
-from functools import lru_cache
 import hashlib
 import uuid
 import asyncio
@@ -7,11 +6,12 @@ import redis
 import nltk
 import numpy as np
 
+from functools import lru_cache
 from typing import List
 from fastapi import FastAPI
 from bs4 import BeautifulSoup
-from redis.commands.search.query import Query
 from sentence_transformers import SentenceTransformer
+from redis.commands.search.query import Query
 from nltk.tokenize import sent_tokenize
 
 from src.common.config import REDIS_HOST, REDIS_PORT, REDIS_PASSWORD

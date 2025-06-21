@@ -1,9 +1,10 @@
+import asyncio
 import base64
 import io
+
 from typing import AsyncGenerator, Literal, Optional, Union
 from sarvamai import SarvamAI
 from openai import OpenAI
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from src.common.constants import LANGUAGE_MAP, LOGGER_CHAT_ORCHESTRATOR
@@ -28,7 +29,8 @@ class ChatOrchestrator:
 
     async def process(self, request: ChatRequest, stream: bool = False) -> Union[dict[str, str], AsyncGenerator[str, None]]:
         if hasattr(request, "audio") and request.audio:
-            audio_bytes = base64.b64decode(request.audio)
+            audio_bytes = io.BytesIO(base64.b64decode(request.audio))
+            audio_bytes.name = f"{request.request_id}_{request.name}.wav"  # Set a name for the BytesIO object
             speech_to_text_result, language = await self.speech_to_text(audio_bytes, request_id=request.request_id)
             if speech_to_text_result is None:
                 return {"error": "Speech to text failed", "message": "Could not process audio input."}

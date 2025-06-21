@@ -1,13 +1,12 @@
 import json
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from src.common.logger import logger, get_request_id
 from src.common.constants import LOGGER_CHAT_ORCHESTRATOR
 from src.orchestrator import ChatOrchestrator
 from src.request_models import ChatRequest, IngestRequest, SearchRequest
 from src.database import VectorDatabase
-import asyncio
 from contextlib import asynccontextmanager
 
 # Global instances for shared resources
@@ -105,7 +104,5 @@ if __name__ == "__main__":
         port=8000, 
         reload=True,
         workers=4,  # Multiple worker processes
-        loop="asyncio",
-        http="httptools",  # Faster HTTP parser
         access_log=False  # Disable access logs for better performance
     )
