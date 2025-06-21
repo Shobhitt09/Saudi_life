@@ -37,7 +37,7 @@ class ChatOrchestrator:
         llm_response = self.generate_llm_response(translated_query, contexts, language, request_id=request.request_id)
         return llm_response
     
-    def identify_language(self, query: str, request_id=None) -> Literal["hi", "ml"]:
+    def identify_language(self, query: str, request_id=None) -> Literal["en", "hi", "ml"]:
         english_range = range(0x0041, 0x007F)
         devanagari_range = range(0x0900, 0x0980)
         malayalam_range = range(0x0D00, 0x0D80)
