@@ -34,7 +34,7 @@ class ChatOrchestrator:
         
         logger.info(f"{LOGGER_CHAT_ORCHESTRATOR} - {request.request_id} - Processing request: {request.query}")
         
-        if not hasattr(request, "audio") or not request.request_id:
+        if not hasattr(request, "audio") or not request.audio:
             language = self.identify_language(request.query, request_id=request.request_id)
             request.translated_query = self.translate_query(request.query, language, "en", request_id=request.request_id)
 

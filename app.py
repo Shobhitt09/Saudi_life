@@ -1,3 +1,4 @@
+import json
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
@@ -38,9 +39,9 @@ async def process_item_stream(request: ChatRequest):
             async for chunk in orchestrator_response:
                 if isinstance(chunk, str):
                     gathered_chunks.append(chunk)
-                    yield str({"chunk": chunk})+"\n"
+                    yield json.dumps({"chunk": chunk})+"\n"
                 else:
-                    yield str({"error": "Invalid response format from orchestrator"})+"\n"
+                    yield json.dumps({"error": "Invalid response format from orchestrator"})+"\n"
             
             yield str({"final_response": "".join(gathered_chunks)})+"\n"
         return StreamingResponse(format_response(), media_type="text/plain")
@@ -61,6 +62,15 @@ async def search(request: SearchRequest):
     setattr(request, 'request_id', get_request_id())
     return await vector_database.search(request)
 
+# Health Check Endpoint
+@app.get("/health/")
+async def health_check():
+    try:
+        # Perform a simple check to see if the service is running
+        return {"status": "ok", "message": "Service is running"}
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {"status": "error", "message": "Service is not running"}
 
 if __name__ == "__main__":
     # Run the FastAPI app using uvicorn
